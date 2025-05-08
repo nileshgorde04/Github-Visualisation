@@ -13,11 +13,17 @@ import javax.validation.constraints.NotBlank;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ContributionRequest {
-    @NotBlank(message = "Root directory is required")
     private String rootDirectory;
-    
+
     @Min(value = 1, message = "Days must be at least 1")
     private int days = 30;
-    
+
     private String userEmail;
+
+    private String remoteRepoUrl;
+
+    /**
+     * Validates that either rootDirectory or remoteRepoUrl is provided.
+     * This is checked in the service layer.
+     */
 }

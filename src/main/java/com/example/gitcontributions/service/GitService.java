@@ -134,7 +134,7 @@ public class GitService {
             throw new IOException("Error accessing Git repository: " + e.getMessage(), e);
         } catch (GitAPIException e) {
             log.error("Error executing Git command for repository: {}", repository.getPath(), e);
-            throw new GitAPIException("Error executing Git command: " + e.getMessage(), e);
+            throw e;
         }
 
         repository.setCommits(commits);
@@ -242,5 +242,73 @@ public class GitService {
         }
 
         return user;
+    }
+
+    /**
+     * Clone a remote Git repository to a temporary directory and analyze it.
+     *
+     * @param remoteUrl The URL of the remote repository.
+     * @param days Number of days to look back.
+     * @param authorEmail Email of the author to filter commits by.
+     * @return The repository with commits added.
+     * @throws IOException if there's an error accessing the repository
+     * @throws GitAPIException if there's an error executing Git commands
+     */
+    public GitRepository cloneAndAnalyzeRemoteRepository(String remoteUrl, int days, String authorEmail) 
+            throws IOException, GitAPIException {
+        // Extract repository name from URL
+        String repoName = extractRepoNameFromUrl(remoteUrl);
+
+        // Create a temporary directory for cloning
+        Path tempDir = Files.createTempDirectory("git-contrib-");
+        Path repoPath = tempDir.resolve(repoName);
+
+        log.info("Cloning remote repository: {} to {}", remoteUrl, repoPath);
+
+        try {
+            // Clone the repository
+            Git git = Git.cloneRepository()
+                    .setURI(remoteUrl)
+                    .setDirectory(repoPath.toFile())
+                    .call();
+
+            // Create a GitRepository object
+            GitRepository repository = GitRepository.builder()
+                    .name(repoName)
+                    .path(repoPath)
+                    .commits(new ArrayList<>())
+                    .build();
+
+            // Get commits
+            repository = getCommits(repository, days, authorEmail);
+
+            return repository;
+        } catch (GitAPIException e) {
+            log.error("Error cloning repository: {}", remoteUrl, e);
+            throw e;
+        } catch (IOException e) {
+            log.error("Error accessing cloned repository: {}", repoPath, e);
+            throw new IOException("Error accessing cloned repository: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Extract repository name from a Git URL.
+     *
+     * @param url The Git URL.
+     * @return The repository name.
+     */
+    private String extractRepoNameFromUrl(String url) {
+        // Remove .git extension if present
+        String cleanUrl = url.endsWith(".git") ? url.substring(0, url.length() - 4) : url;
+
+        // Extract the last part of the URL (the repository name)
+        int lastSlashIndex = cleanUrl.lastIndexOf('/');
+        if (lastSlashIndex != -1 && lastSlashIndex < cleanUrl.length() - 1) {
+            return cleanUrl.substring(lastSlashIndex + 1);
+        }
+
+        // Fallback: use a generic name
+        return "remote-repository";
     }
 }

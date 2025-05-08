@@ -1,6 +1,7 @@
 package com.example.gitcontributions.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -33,14 +34,30 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleIOException(IOException ex) {
         Map<String, String> error = new HashMap<>();
         String message = "An error occurred while accessing the file system";
-        
+
         if (ex instanceof NoSuchFileException) {
             message = "The specified directory does not exist: " + ex.getMessage();
         }
-        
+
         error.put("message", message);
         log.error("IO error: {}", ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("message", ex.getMessage());
+        log.error("Illegal argument: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(GitAPIException.class)
+    public ResponseEntity<Map<String, String>> handleGitAPIException(GitAPIException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("message", "An error occurred while executing Git commands: " + ex.getMessage());
+        log.error("Git API error: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 
     @ExceptionHandler(Exception.class)

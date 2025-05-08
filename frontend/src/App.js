@@ -5,6 +5,7 @@ import axios from 'axios';
 
 function App() {
   const [rootDirectory, setRootDirectory] = useState('');
+  const [remoteRepoUrl, setRemoteRepoUrl] = useState('');
   const [days, setDays] = useState(30);
   const [userEmail, setUserEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,7 +21,8 @@ function App() {
       const response = await axios.post('/api/contributions', {
         rootDirectory,
         days,
-        userEmail: userEmail || null
+        userEmail: userEmail || null,
+        remoteRepoUrl: remoteRepoUrl || null
       });
       setContributionData(response.data);
     } catch (err) {
@@ -49,10 +51,25 @@ function App() {
                 placeholder="Enter the root directory to search for Git repositories"
                 value={rootDirectory}
                 onChange={(e) => setRootDirectory(e.target.value)}
-                required
+                required={!remoteRepoUrl}
+                disabled={!!remoteRepoUrl}
               />
               <Form.Text className="text-muted">
                 The tool will search for Git repositories in this directory and its subdirectories.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Remote Repository URL (Optional)</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Enter a remote Git repository URL (e.g., https://github.com/username/repo.git)"
+                value={remoteRepoUrl}
+                onChange={(e) => setRemoteRepoUrl(e.target.value)}
+                disabled={!!rootDirectory}
+              />
+              <Form.Text className="text-muted">
+                Alternatively, you can analyze a single remote repository by providing its URL.
               </Form.Text>
             </Form.Group>
 
