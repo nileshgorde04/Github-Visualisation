@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
@@ -33,14 +34,15 @@ public class GitService {
      *
      * @param rootDir The root directory to start the search from.
      * @return A list of Git repositories.
+     * @throws IOException if there's an error accessing the file system
      */
-    public List<GitRepository> findGitRepositories(String rootDir) {
+    public List<GitRepository> findGitRepositories(String rootDir) throws IOException {
         List<GitRepository> repositories = new ArrayList<>();
         Path rootPath = Paths.get(rootDir);
 
         if (!Files.exists(rootPath)) {
             log.error("Root directory does not exist: {}", rootDir);
-            return repositories;
+            throw new NoSuchFileException(rootDir);
         }
 
         try (Stream<Path> paths = Files.walk(rootPath)) {
@@ -52,7 +54,7 @@ public class GitService {
             for (Path gitDir : gitDirs) {
                 Path repoPath = gitDir.getParent();
                 String repoName = repoPath.getFileName().toString();
-                
+
                 repositories.add(GitRepository.builder()
                         .name(repoName)
                         .path(repoPath)
@@ -61,6 +63,7 @@ public class GitService {
             }
         } catch (IOException e) {
             log.error("Error walking directory: {}", rootDir, e);
+            throw new IOException("Error searching for Git repositories: " + e.getMessage(), e);
         }
 
         return repositories;
@@ -73,10 +76,17 @@ public class GitService {
      * @param days Number of days to look back.
      * @param authorEmail Email of the author to filter commits by.
      * @return The repository with commits added.
+     * @throws IOException if there's an error accessing the repository
+     * @throws GitAPIException if there's an error executing Git commands
      */
-    public GitRepository getCommits(GitRepository repository, int days, String authorEmail) {
+    public GitRepository getCommits(GitRepository repository, int days, String authorEmail) throws IOException, GitAPIException {
         List<GitCommit> commits = new ArrayList<>();
         Path gitDir = repository.getPath().resolve(".git");
+
+        if (!Files.exists(gitDir)) {
+            log.error("Git directory does not exist: {}", gitDir);
+            throw new NoSuchFileException(gitDir.toString());
+        }
 
         try {
             Repository jgitRepo = new FileRepositoryBuilder()
@@ -92,12 +102,12 @@ public class GitService {
                 for (RevCommit revCommit : revCommits) {
                     PersonIdent authorIdent = revCommit.getAuthorIdent();
                     Date commitDate = authorIdent.getWhen();
-                    
+
                     // Skip commits older than 'since' date
                     if (commitDate.before(sinceDate)) {
                         continue;
                     }
-                    
+
                     // Skip commits not by the specified author
                     if (authorEmail != null && !authorEmail.isEmpty() && 
                             !authorEmail.equals(authorIdent.getEmailAddress())) {
@@ -119,8 +129,12 @@ public class GitService {
                     commits.add(commit);
                 }
             }
-        } catch (IOException | GitAPIException e) {
-            log.error("Error getting commits for repository: {}", repository.getPath(), e);
+        } catch (IOException e) {
+            log.error("Error accessing repository: {}", repository.getPath(), e);
+            throw new IOException("Error accessing Git repository: " + e.getMessage(), e);
+        } catch (GitAPIException e) {
+            log.error("Error executing Git command for repository: {}", repository.getPath(), e);
+            throw new GitAPIException("Error executing Git command: " + e.getMessage(), e);
         }
 
         repository.setCommits(commits);
@@ -143,20 +157,20 @@ public class GitService {
 
         // Initialize stats
         Map<LocalDate, Integer> commitsByDate = new HashMap<>();
-        
+
         // Process each commit
         for (GitCommit commit : commits) {
             LocalDate date = commit.getDate().toLocalDate();
-            
+
             // Count commits by date
             commitsByDate.put(date, commitsByDate.getOrDefault(date, 0) + 1);
         }
-        
+
         // Sort commits by date to find first and last
         List<GitCommit> sortedCommits = commits.stream()
                 .sorted(Comparator.comparing(GitCommit::getDate))
                 .collect(Collectors.toList());
-        
+
         return ContributionStats.builder()
                 .totalCommits(commits.size())
                 .commitsByDate(commitsByDate)
@@ -169,8 +183,9 @@ public class GitService {
      * Get the current Git user's name and email.
      *
      * @return A map containing the user's name and email.
+     * @throws IOException if there's an error executing Git commands
      */
-    public Map<String, String> getGitUser() {
+    public Map<String, String> getGitUser() throws IOException {
         Map<String, String> user = new HashMap<>();
         user.put("name", "Unknown");
         user.put("email", "Unknown");
@@ -178,6 +193,19 @@ public class GitService {
         try {
             ProcessBuilder pb = new ProcessBuilder("git", "config", "user.name");
             Process process = pb.start();
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                try (Scanner scanner = new Scanner(process.getErrorStream())) {
+                    StringBuilder errorMsg = new StringBuilder();
+                    while (scanner.hasNextLine()) {
+                        errorMsg.append(scanner.nextLine());
+                    }
+                    log.error("Git command failed with exit code {}: {}", exitCode, errorMsg);
+                    throw new IOException("Failed to execute Git command. Make sure Git is installed and in your PATH.");
+                }
+            }
+
             try (Scanner scanner = new Scanner(process.getInputStream())) {
                 if (scanner.hasNextLine()) {
                     user.put("name", scanner.nextLine().trim());
@@ -186,6 +214,19 @@ public class GitService {
 
             pb = new ProcessBuilder("git", "config", "user.email");
             process = pb.start();
+            exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                try (Scanner scanner = new Scanner(process.getErrorStream())) {
+                    StringBuilder errorMsg = new StringBuilder();
+                    while (scanner.hasNextLine()) {
+                        errorMsg.append(scanner.nextLine());
+                    }
+                    log.error("Git command failed with exit code {}: {}", exitCode, errorMsg);
+                    throw new IOException("Failed to execute Git command. Make sure Git is installed and in your PATH.");
+                }
+            }
+
             try (Scanner scanner = new Scanner(process.getInputStream())) {
                 if (scanner.hasNextLine()) {
                     user.put("email", scanner.nextLine().trim());
@@ -193,6 +234,11 @@ public class GitService {
             }
         } catch (IOException e) {
             log.error("Error getting Git user", e);
+            throw new IOException("Failed to execute Git command. Make sure Git is installed and in your PATH.", e);
+        } catch (InterruptedException e) {
+            log.error("Git command was interrupted", e);
+            Thread.currentThread().interrupt();
+            throw new IOException("Git command was interrupted", e);
         }
 
         return user;

@@ -9,6 +9,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,8 +33,16 @@ public class ContributionService {
      *
      * @param request The contribution request.
      * @return The contribution response.
+     * @throws IOException if there's an error accessing the file system or executing Git commands
      */
-    public ContributionResponse generateContributions(ContributionRequest request) {
+    public ContributionResponse generateContributions(ContributionRequest request) throws IOException {
+        // Validate root directory
+        Path rootPath = Paths.get(request.getRootDirectory());
+        if (!Files.exists(rootPath)) {
+            log.error("Root directory does not exist: {}", request.getRootDirectory());
+            throw new NoSuchFileException(request.getRootDirectory());
+        }
+
         // Get user information
         Map<String, String> user = gitService.getGitUser();
         String userName = user.get("name");
